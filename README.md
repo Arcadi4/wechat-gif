@@ -1,2 +1,10 @@
 # wechat-gif
- Compress gif so it can be sent and auto played on WeChat.
+
+中文 | [EN](README_EN.md)
+
+一个使得 gif 可以在微信中发送并自动播放的简单压缩工具。
+
+根据 macOS 平台微信(3.8.9)测试，以图片形式发送 gif 并自动播放的要求为：
+
+- 宽高均不超过 1000px
+- 文件大小不超过 1MB

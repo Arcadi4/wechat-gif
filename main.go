@@ -57,7 +57,7 @@ func main() {
 			continue
 		}
 		if !good {
-			resized := resizeGifFrames(gifDecode)
+			resized := resizeGifFrames(gifDecode, maxX, maxY)
 			outPath := filepath.Join(
 				path.Dir(files[i].Name()),
 				"WeChat_"+path.Base(files[i].Name()),
@@ -164,20 +164,29 @@ func resizeGifFrames(gif *stlgif.GIF, x int, y int) (new *stlgif.GIF) {
 	}
 	copy(new.Image, gif.Image)
 
+	largestX := 0
+	largestY := 0
+
 	for i, frame := range gif.Image {
 		bound := frame.Bounds()
-		if bound.Dx() > maxX {
-			resizedFrame := imaging.Resize(frame, maxX, 0, imaging.Lanczos)
+		if bound.Dx() > x {
+			resizedFrame := imaging.Resize(frame, x, 0, imaging.Lanczos)
 			new.Image[i] = convertNrgbaPaletted(resizedFrame, frame.Palette)
 		}
-		if bound.Dy() > maxY {
-			resizedFrame := imaging.Resize(frame, 0, maxY, imaging.Lanczos)
+		if bound.Dy() > y {
+			resizedFrame := imaging.Resize(frame, 0, y, imaging.Lanczos)
 			new.Image[i] = convertNrgbaPaletted(resizedFrame, frame.Palette)
+		}
+		if new.Image[i].Bounds().Dx() > largestX {
+			largestX = new.Image[i].Bounds().Dx()
+		}
+		if new.Image[i].Bounds().Dy() > largestY {
+			largestY = new.Image[i].Bounds().Dy()
 		}
 	}
 
-	new.Config.Width = new.Image[0].Bounds().Dx()
-	new.Config.Height = new.Image[0].Bounds().Dy()
+	new.Config.Width = largestX
+	new.Config.Height = largestY
 
 	return new
 }

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"github.com/disintegration/imaging"
@@ -9,15 +10,17 @@ import (
 	"image/color"
 	"image/draw"
 	stlgif "image/gif"
+	"io"
 	"log"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
 )
 
-const maxX = 1000
-const maxY = 1000
-const maxFileSize = 1000000
+const WeChatMaxX = 1000
+const WeChatMaxY = 1000
+const WeChatMaxSize = 5242880
 
 var defaultPalette = color.Palette{}
 
@@ -72,13 +75,23 @@ func action(context.Context, *cli.Command) (err error) {
 			continue
 		}
 		if !good {
-			resized := resizeGifFrames(gifDecode, maxX, maxY)
+			resized := resizeGifFrames(gifDecode, WeChatMaxX, WeChatMaxY)
+
+			var buf bytes.Buffer
+			bufWriter := io.Writer(&buf)
+			err = stlgif.EncodeAll(bufWriter, resized)
+			if buf.Len() > WeChatMaxSize {
+				resized = compressGif(resized, WeChatMaxSize)
+				buf.Reset()
+				err = stlgif.EncodeAll(bufWriter, resized)
+			}
+
 			outPath := filepath.Join(
 				path.Dir(files[i].Name()),
 				"WeChat_"+path.Base(files[i].Name()),
 			)
 			out, err := os.Create(outPath)
-			err = stlgif.EncodeAll(out, resized)
+			_, err = out.Write(buf.Bytes())
 			if err != nil {
 				fmt.Printf("❌ Failed saving '%s': %s\n", args[i], err.Error())
 				continue
@@ -151,7 +164,7 @@ func readArgs(args []string) ([]*stlgif.GIF, []*os.File) {
 func isGoodGif(gif *stlgif.GIF, f *os.File) (good bool, err error) {
 	for _, frame := range gif.Image {
 		bound := frame.Bounds()
-		if bound.Dx() > maxX || bound.Dy() > maxY {
+		if bound.Dx() > WeChatMaxX || bound.Dy() > WeChatMaxY {
 			return false, nil
 		}
 	}
@@ -160,7 +173,7 @@ func isGoodGif(gif *stlgif.GIF, f *os.File) (good bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if stat.Size() >= maxFileSize {
+	if stat.Size() >= WeChatMaxSize {
 		return false, nil
 	}
 
@@ -181,9 +194,6 @@ func resizeGifFrames(gif *stlgif.GIF, x int, y int) (new *stlgif.GIF) {
 	}
 	copy(new.Image, gif.Image)
 
-	largestX := 0
-	largestY := 0
-
 	for i, frame := range gif.Image {
 		bound := frame.Bounds()
 		if bound.Dx() > x {
@@ -194,18 +204,26 @@ func resizeGifFrames(gif *stlgif.GIF, x int, y int) (new *stlgif.GIF) {
 			resizedFrame := imaging.Resize(frame, 0, y, imaging.Lanczos)
 			new.Image[i] = convertNrgbaPaletted(resizedFrame, frame.Palette)
 		}
-		if new.Image[i].Bounds().Dx() > largestX {
-			largestX = new.Image[i].Bounds().Dx()
-		}
-		if new.Image[i].Bounds().Dy() > largestY {
-			largestY = new.Image[i].Bounds().Dy()
-		}
 	}
-
-	new.Config.Width = largestX
-	new.Config.Height = largestY
+	updateGifConfig(new)
 
 	return new
+}
+
+func updateGifConfig(gif *stlgif.GIF) {
+	largestX := 0
+	largestY := 0
+	for _, frame := range gif.Image {
+		bound := frame.Bounds()
+		if bound.Dx() > largestX {
+			largestX = bound.Dx()
+		}
+		if bound.Dy() > largestY {
+			largestY = bound.Dy()
+		}
+	}
+	gif.Config.Width = largestX
+	gif.Config.Height = largestY
 }
 
 func convertNrgbaPaletted(
@@ -224,4 +242,44 @@ palette color.Palette,
 		image.Point{},
 	)
 	return paletted
+}
+
+func compressGif(gif *stlgif.GIF, maxSize int) (new *stlgif.GIF) {
+	// Stretching one edge of the gif by factor x will expand the size by roughly
+	// x^2 times. Note that it's the same when x < 1.0. So we can use the square
+	// root of the size ratio to scale the gif to estimate the ratio to resize
+	// one edge of the gif. Then we minus the ratio by 0.02 for safety in edge
+	// cases.
+	rate := math.Sqrt(float64(maxSize)/float64(getFileSize(gif))) - 0.02
+	// Rate > 1.0 indicates that the gif is already smaller than the target size.
+	// So we return the original gif directly.
+	if rate > 1.0 {
+		return gif
+	}
+
+	new = &stlgif.GIF{
+		Image:           make([]*image.Paletted, len(gif.Image)),
+		Delay:           gif.Delay,
+		Disposal:        gif.Disposal,
+		BackgroundIndex: gif.BackgroundIndex,
+		Config:          gif.Config,
+		LoopCount:       gif.LoopCount,
+	}
+	copy(new.Image, gif.Image)
+
+	return resizeGifFrames(
+		new,
+		int(float64(gif.Config.Width)*rate),
+		gif.Config.Height,
+	)
+}
+
+func getFileSize(gif *stlgif.GIF) (size int) {
+	buf := bytes.Buffer{}
+	bufWriter := io.Writer(&buf)
+	err := stlgif.EncodeAll(bufWriter, gif)
+	if err != nil {
+		fmt.Printf("❌ Failed encoding gif: %s\n", err.Error())
+	}
+	return buf.Len()
 }

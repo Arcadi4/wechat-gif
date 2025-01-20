@@ -150,7 +150,10 @@ func isGoodGif(gif *stlgif.GIF, f *os.File) (good bool, err error) {
 	return true, nil
 }
 
-func resizeGifFrames(gif *stlgif.GIF) (new *stlgif.GIF) {
+// resizeGifFrames gives a gif with
+//   - Same ratio as the original gif
+//   - width < x AND height < y
+func resizeGifFrames(gif *stlgif.GIF, x int, y int) (new *stlgif.GIF) {
 	new = &stlgif.GIF{
 		Image:           make([]*image.Paletted, len(gif.Image)),
 		Delay:           gif.Delay,

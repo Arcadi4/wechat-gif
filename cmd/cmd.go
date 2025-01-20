@@ -16,6 +16,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
 )
 
 const WeChatMaxX = 1000
@@ -194,17 +195,23 @@ func resizeGifFrames(gif *stlgif.GIF, x int, y int) (new *stlgif.GIF) {
 	}
 	copy(new.Image, gif.Image)
 
+	var wg sync.WaitGroup
 	for i, frame := range gif.Image {
-		bound := frame.Bounds()
-		if bound.Dx() > x {
-			resizedFrame := imaging.Resize(frame, x, 0, imaging.Lanczos)
-			new.Image[i] = convertNrgbaPaletted(resizedFrame, frame.Palette)
-		}
-		if bound.Dy() > y {
-			resizedFrame := imaging.Resize(frame, 0, y, imaging.Lanczos)
-			new.Image[i] = convertNrgbaPaletted(resizedFrame, frame.Palette)
-		}
+		wg.Add(1)
+		go func(i int, frame *image.Paletted) {
+			defer wg.Done()
+			bound := frame.Bounds()
+			if bound.Dx() > x {
+				resizedFrame := imaging.Resize(frame, x, 0, imaging.Lanczos)
+				new.Image[i] = convertNrgbaPaletted(resizedFrame, frame.Palette)
+			}
+			if bound.Dy() > y {
+				resizedFrame := imaging.Resize(frame, 0, y, imaging.Lanczos)
+				new.Image[i] = convertNrgbaPaletted(resizedFrame, frame.Palette)
+			}
+		}(i, frame)
 	}
+	wg.Wait()
 	updateGifConfig(new)
 
 	return new

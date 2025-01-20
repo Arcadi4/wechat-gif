@@ -97,7 +97,7 @@ func action(context.Context, *cli.Command) (err error) {
 				fmt.Printf("❌ Failed saving '%s': %s\n", args[i], err.Error())
 				continue
 			}
-			fmt.Printf("🟢 Saved resized image '%s'\n", outPath)
+			fmt.Printf("🟢 Saved resized image '%s'\n", path.Base(outPath))
 		} else {
 			fmt.Printf("🟢 '%s' is already good\n", args[i])
 		}

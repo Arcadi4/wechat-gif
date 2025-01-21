@@ -34,7 +34,7 @@ var Cmd = &cli.Command{
 		},
 		&cli.BoolFlag{
 			Name:    "autoplay",
-			Usage:   "Compress gif so it can autoplay",
+			Usage:   "Compress further so it can autoplay (<1MiB)",
 			Aliases: []string{"a"},
 		},
 	},
@@ -146,6 +146,11 @@ func readPaths(paths []string) []*gifImg {
 	var objs []*gifImg
 	for _, p := range paths {
 		file, err := os.OpenFile(p, os.O_RDONLY, 0644)
+		info, _ := file.Stat()
+		if info.IsDir() {
+			fmt.Printf("❌ '%s' is a directory, use -d flag instead\n", p)
+			continue
+		}
 		if err != nil {
 			fmt.Printf(
 				"❌ Failed opening '%s': %s\n",
@@ -168,7 +173,7 @@ func readPaths(paths []string) []*gifImg {
 		obj.size = int(stat.Size())
 		decode, err := stlgif.DecodeAll(obj.file)
 		if err != nil {
-			fmt.Printf("❌ Faild decoding '%s': %s", p, err.Error())
+			fmt.Printf("❌ Faild decoding '%s': %s\n", p, err.Error())
 			continue
 		}
 		obj.decode = decode

@@ -70,28 +70,24 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 		return nil
 	}
 
-	gifs, files := readArgs(args)
+	objs := readArgs(args)
 
-	for i, gifDecode := range gifs {
-		if gifDecode == nil {
-			continue
-		}
-
-		good, err := isGoodGif(gifDecode, files[i])
+	for i, obj := range objs {
+		good, err := isGoodGif(obj.decode, obj.file)
 		if err != nil {
 			fmt.Printf("❌ Failed checking '%s': %s\n", args[i], err.Error())
 			continue
 		}
 		if !good {
-			resized := resizeGifFrames(gifDecode, MaxWidth, MaxHeight)
+			resized := resizeGifFrames(obj.decode, MaxWidth, MaxHeight)
 			if c.Bool("autoplay") {
 				resized = compressGif(resized, MaxAutoplaySize)
 			} else {
 				resized = compressGif(resized, MaxImageSize)
 			}
 			outPath := filepath.Join(
-				path.Dir(files[i].Name()),
-				"WeChat_"+path.Base(files[i].Name()),
+				path.Dir(obj.file.Name()),
+				"WeChat_"+path.Base(obj.file.Name()),
 			)
 			out, err := os.Create(outPath)
 			err = stlgif.EncodeAll(out, resized)
@@ -108,56 +104,45 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 	return nil
 }
 
-func readArgs(args []string) ([]*stlgif.GIF, []*os.File) {
-	// The indices of args, paths, files, and gifs align with each others.
-	var paths []string
-	for _, arg := range args {
-		path, err := filepath.Abs(arg)
-		if err != nil {
-			fmt.Printf("❌ Invalid path '%s'\n", arg)
-			paths = append(paths, "")
-			continue
-		}
-		paths = append(paths, path)
-	}
+type gifImg struct {
+	decode *stlgif.GIF
+	file   *os.File
+	size   int
+}
 
-	var files []*os.File
-	for i, path := range paths {
-		if path == "" {
-			files = append(files, nil)
-			continue
-		}
-
-		file, err := os.OpenFile(path, os.O_RDONLY, 0644)
+func readArgs(paths []string) []*gifImg {
+	var objs []*gifImg
+	for _, p := range paths {
+		file, err := os.OpenFile(p, os.O_RDONLY, 0644)
 		if err != nil {
 			fmt.Printf(
 				"❌ Failed opening '%s': %s\n",
-				args[i],
+				p,
 				err.Error(),
 			)
-			files = append(files, nil)
 			continue
 		}
-		files = append(files, file)
-	}
-
-	var gifs []*stlgif.GIF
-	for i, file := range files {
-		if file == nil {
-			gifs = append(gifs, nil)
-			continue
-		}
-
-		gifDecode, err := stlgif.DecodeAll(file)
+		stat, err := file.Stat()
 		if err != nil {
-			fmt.Printf("❌ Faild decoding '%s': %s", args[i], err.Error())
-			gifs = append(gifs, nil)
+			fmt.Printf(
+				"❌ Failed opening '%s': %s\n",
+				p,
+				err.Error(),
+			)
 			continue
 		}
-		gifs = append(gifs, gifDecode)
+		var obj gifImg
+		obj.file = file
+		obj.size = int(stat.Size())
+		decode, err := stlgif.DecodeAll(obj.file)
+		if err != nil {
+			fmt.Printf("❌ Faild decoding '%s': %s", p, err.Error())
+			continue
+		}
+		obj.decode = decode
+		objs = append(objs, &obj)
 	}
-
-	return gifs, files
+	return objs
 }
 
 // isGoodGif checks for the following conditions (AND):

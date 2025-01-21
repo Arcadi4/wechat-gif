@@ -8,3 +8,7 @@ Tested on macOS WeChat 3.8.10, the requirements for sending gif as image are:
 
 - Width and height are both less than 1000px
 - File size is less than 5MiB
+
+Additionally, if you want the gif to be played automatically on other clients:
+
+- File size is less than 1MiB

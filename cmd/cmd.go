@@ -19,9 +19,10 @@ import (
 	"sync"
 )
 
-const WeChatMaxX = 1000
-const WeChatMaxY = 1000
-const WeChatMaxSize = 5242880
+const MaxWidth = 1000
+const MaxHeight = 1000
+const MaxImageSize = 5242880
+const MaxAutoplaySize = 1048576
 
 var defaultPalette = color.Palette{}
 
@@ -34,11 +35,16 @@ var Cmd = &cli.Command{
 			Usage:   "Process all gif files in given directory",
 			Aliases: []string{"d"},
 		},
+		&cli.BoolFlag{
+			Name:    "autoplay",
+			Usage:   "Compress gif so it can autoplay",
+			Aliases: []string{"a"},
+		},
 	},
 	Action: action,
 }
 
-func action(context.Context, *cli.Command) (err error) {
+func action(ctx context.Context, c *cli.Command) (err error) {
 	defaultPalette = color.Palette{
 		color.RGBA{A: 255},                         // Black
 		color.RGBA{R: 255, G: 255, B: 255, A: 255}, // White
@@ -57,10 +63,11 @@ func action(context.Context, *cli.Command) (err error) {
 		)
 	}
 
-	args := os.Args[1:]
+	args := c.Args().Slice()
 
 	if len(args) == 0 {
 		log.Println("Specify gifDecode file(s) to process it")
+		return nil
 	}
 
 	gifs, files := readArgs(args)
@@ -76,23 +83,18 @@ func action(context.Context, *cli.Command) (err error) {
 			continue
 		}
 		if !good {
-			resized := resizeGifFrames(gifDecode, WeChatMaxX, WeChatMaxY)
-
-			var buf bytes.Buffer
-			bufWriter := io.Writer(&buf)
-			err = stlgif.EncodeAll(bufWriter, resized)
-			if buf.Len() > WeChatMaxSize {
-				resized = compressGif(resized, WeChatMaxSize)
-				buf.Reset()
-				err = stlgif.EncodeAll(bufWriter, resized)
+			resized := resizeGifFrames(gifDecode, MaxWidth, MaxHeight)
+			if c.Bool("autoplay") {
+				resized = compressGif(resized, MaxAutoplaySize)
+			} else {
+				resized = compressGif(resized, MaxImageSize)
 			}
-
 			outPath := filepath.Join(
 				path.Dir(files[i].Name()),
 				"WeChat_"+path.Base(files[i].Name()),
 			)
 			out, err := os.Create(outPath)
-			_, err = out.Write(buf.Bytes())
+			err = stlgif.EncodeAll(out, resized)
 			if err != nil {
 				fmt.Printf("❌ Failed saving '%s': %s\n", args[i], err.Error())
 				continue
@@ -165,7 +167,7 @@ func readArgs(args []string) ([]*stlgif.GIF, []*os.File) {
 func isGoodGif(gif *stlgif.GIF, f *os.File) (good bool, err error) {
 	for _, frame := range gif.Image {
 		bound := frame.Bounds()
-		if bound.Dx() > WeChatMaxX || bound.Dy() > WeChatMaxY {
+		if bound.Dx() > MaxWidth || bound.Dy() > MaxHeight {
 			return false, nil
 		}
 	}
@@ -174,7 +176,7 @@ func isGoodGif(gif *stlgif.GIF, f *os.File) (good bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if stat.Size() >= WeChatMaxSize {
+	if stat.Size() >= MaxImageSize {
 		return false, nil
 	}
 

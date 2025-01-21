@@ -9,7 +9,6 @@ import (
 	"image/color"
 	"image/draw"
 	stlgif "image/gif"
-	"log"
 	"math"
 	"os"
 	"path"
@@ -62,18 +61,43 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 	}
 
 	args := c.Args().Slice()
-
 	if len(args) == 0 {
-		log.Println("Specify gifDecode file(s) to process it")
-		return nil
+		cli.ShowAppHelpAndExit(c, 0)
 	}
 
-	objs := readArgs(args)
+	var objs []*gifImg
+	if c.Bool("dir") {
+		var paths []string
+		for _, arg := range args {
+			entries, err := os.ReadDir(arg)
+			if err != nil {
+				fmt.Printf(
+					"❌ Failed reading '%s': %s\n",
+					arg,
+					err.Error(),
+				)
+				continue
+			}
+			for _, entry := range entries {
+				if entry.IsDir() || filepath.Ext(entry.Name()) != ".gif" {
+					continue
+				}
+				paths = append(paths, filepath.Join(arg, entry.Name()))
+			}
+		}
+		objs = readArgs(paths)
+	} else {
+		objs = readArgs(args)
+	}
 
-	for i, obj := range objs {
+	for _, obj := range objs {
 		good, err := isGoodGif(obj.decode, obj.file)
 		if err != nil {
-			fmt.Printf("❌ Failed checking '%s': %s\n", args[i], err.Error())
+			fmt.Printf(
+				"❌ Failed checking '%s': %s\n",
+				obj.file.Name(),
+				err.Error(),
+			)
 			continue
 		}
 		if !good {
@@ -90,12 +114,16 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 			out, err := os.Create(outPath)
 			err = stlgif.EncodeAll(out, obj.decode)
 			if err != nil {
-				fmt.Printf("❌ Failed saving '%s': %s\n", args[i], err.Error())
+				fmt.Printf(
+					"❌ Failed saving '%s': %s\n",
+					obj.file.Name(),
+					err.Error(),
+				)
 				continue
 			}
 			fmt.Printf("🟢 Saved resized image '%s'\n", path.Base(outPath))
 		} else {
-			fmt.Printf("🟢 '%s' is already good\n", args[i])
+			fmt.Printf("🟢 '%s' is already good\n", obj.file.Name())
 		}
 	}
 

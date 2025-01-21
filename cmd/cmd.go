@@ -67,7 +67,6 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 
 	var objs []*gifImg
 	if c.Bool("dir") {
-		var paths []string
 		for _, arg := range args {
 			entries, err := os.ReadDir(arg)
 			if err != nil {
@@ -82,12 +81,13 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 				if entry.IsDir() || filepath.Ext(entry.Name()) != ".gif" {
 					continue
 				}
-				paths = append(paths, filepath.Join(arg, entry.Name()))
+				objs = append(objs, readPath(filepath.Join(arg, entry.Name())))
 			}
 		}
-		objs = readPaths(paths)
 	} else {
-		objs = readPaths(args)
+		for _, arg := range args {
+			objs = append(objs, readPath(arg))
+		}
 	}
 
 	wg := sync.WaitGroup{}
@@ -139,47 +139,43 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 type gifImg struct {
 	decode *stlgif.GIF
 	file   *os.File
-	size   int
+	info   os.FileInfo
 }
 
-func readPaths(paths []string) []*gifImg {
-	var objs []*gifImg
-	for _, p := range paths {
-		file, err := os.OpenFile(p, os.O_RDONLY, 0644)
-		info, _ := file.Stat()
-		if info.IsDir() {
-			fmt.Printf("❌ '%s' is a directory, use -d flag instead\n", p)
-			continue
-		}
-		if err != nil {
-			fmt.Printf(
-				"❌ Failed opening '%s': %s\n",
-				p,
-				err.Error(),
-			)
-			continue
-		}
-		stat, err := file.Stat()
-		if err != nil {
-			fmt.Printf(
-				"❌ Failed opening '%s': %s\n",
-				p,
-				err.Error(),
-			)
-			continue
-		}
-		var obj gifImg
-		obj.file = file
-		obj.size = int(stat.Size())
-		decode, err := stlgif.DecodeAll(obj.file)
-		if err != nil {
-			fmt.Printf("❌ Faild decoding '%s': %s\n", p, err.Error())
-			continue
-		}
-		obj.decode = decode
-		objs = append(objs, &obj)
+func readPath(p string) *gifImg {
+	file, err := os.OpenFile(p, os.O_RDONLY, 0644)
+	info, _ := file.Stat()
+	if info.IsDir() {
+		fmt.Printf("❌ '%s' is a directory, use -d flag instead\n", p)
+		return nil
 	}
-	return objs
+	if err != nil {
+		fmt.Printf(
+			"❌ Failed opening '%s': %s\n",
+			p,
+			err.Error(),
+		)
+		return nil
+	}
+	fileInfo, err := file.Stat()
+	if err != nil {
+		fmt.Printf(
+			"❌ Failed opening '%s': %s\n",
+			p,
+			err.Error(),
+		)
+		return nil
+	}
+	var obj gifImg
+	obj.file = file
+	obj.info = fileInfo
+	decode, err := stlgif.DecodeAll(obj.file)
+	if err != nil {
+		fmt.Printf("❌ Faild decoding '%s': %s\n", p, err.Error())
+		return nil
+	}
+	obj.decode = decode
+	return &obj
 }
 
 // isGoodGif checks for the following conditions (AND):
@@ -278,7 +274,7 @@ func compressGif(gif *gifImg, maxSize int) (new *stlgif.GIF) {
 	// root of the size ratio to scale the gif to estimate the ratio to resize
 	// one edge of the gif. Then we minus the ratio by 0.02 for safety in edge
 	// cases.
-	rate := math.Sqrt(float64(maxSize)/float64(gif.size)) - 0.02
+	rate := math.Sqrt(float64(maxSize)/float64(gif.info.Size())) - 0.02
 	// Rate > 1.0 indicates that the gif is already smaller than the target size.
 	// So we return the original gif directly.
 	if rate > 1.0 {

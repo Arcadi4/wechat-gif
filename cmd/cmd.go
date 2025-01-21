@@ -90,43 +90,49 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 		objs = readPaths(args)
 	}
 
+	wg := sync.WaitGroup{}
 	for _, obj := range objs {
-		good, err := isGoodGif(obj.decode, obj.file)
-		if err != nil {
-			fmt.Printf(
-				"❌ Failed checking '%s': %s\n",
-				obj.file.Name(),
-				err.Error(),
-			)
-			continue
-		}
-		if !good {
-			obj.decode = resizeGifFrames(obj.decode, MaxWidth, MaxHeight)
-			if c.Bool("autoplay") {
-				obj.decode = compressGif(obj, MaxAutoplaySize)
-			} else {
-				obj.decode = compressGif(obj, MaxImageSize)
-			}
-			outPath := filepath.Join(
-				path.Dir(obj.file.Name()),
-				"WeChat_"+path.Base(obj.file.Name()),
-			)
-			out, err := os.Create(outPath)
-			err = stlgif.EncodeAll(out, obj.decode)
+		wg.Add(1)
+		go func(obj *gifImg) {
+			defer wg.Done()
+			good, err := isGoodGif(obj.decode, obj.file)
 			if err != nil {
 				fmt.Printf(
-					"❌ Failed saving '%s': %s\n",
+					"❌ Failed checking '%s': %s\n",
 					obj.file.Name(),
 					err.Error(),
 				)
-				continue
+				return
 			}
-			fmt.Printf("🟢 Saved resized image '%s'\n", path.Base(outPath))
-		} else {
-			fmt.Printf("🟢 '%s' is already good\n", obj.file.Name())
-		}
+			if !good {
+				obj.decode = resizeGifFrames(obj.decode, MaxWidth, MaxHeight)
+				if c.Bool("autoplay") {
+					obj.decode = compressGif(obj, MaxAutoplaySize)
+				} else {
+					obj.decode = compressGif(obj, MaxImageSize)
+				}
+				outPath := filepath.Join(
+					path.Dir(obj.file.Name()),
+					"WeChat_"+path.Base(obj.file.Name()),
+				)
+				out, err := os.Create(outPath)
+				err = stlgif.EncodeAll(out, obj.decode)
+				if err != nil {
+					fmt.Printf(
+						"❌ Failed saving '%s': %s\n",
+						obj.file.Name(),
+						err.Error(),
+					)
+					return
+				}
+				fmt.Printf("🟢 Saved resized image '%s'\n", path.Base(outPath))
+			} else {
+				fmt.Printf("🟢 '%s' is already good\n", obj.file.Name())
+			}
+		}(obj)
 	}
 
+	wg.Wait()
 	return nil
 }
 

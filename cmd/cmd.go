@@ -81,12 +81,18 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 				if entry.IsDir() || filepath.Ext(entry.Name()) != ".gif" {
 					continue
 				}
-				objs = append(objs, readPath(filepath.Join(arg, entry.Name())))
+				obj := readPath(filepath.Join(arg, entry.Name()))
+				if obj != nil {
+					objs = append(objs, obj)
+				}
 			}
 		}
 	} else {
 		for _, arg := range args {
-			objs = append(objs, readPath(arg))
+			obj := readPath(filepath.Join(arg))
+			if obj != nil {
+				objs = append(objs, obj)
+			}
 		}
 	}
 

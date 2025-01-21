@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"github.com/disintegration/imaging"
@@ -10,7 +9,6 @@ import (
 	"image/color"
 	"image/draw"
 	stlgif "image/gif"
-	"io"
 	"log"
 	"math"
 	"os"
@@ -79,18 +77,18 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 			continue
 		}
 		if !good {
-			resized := resizeGifFrames(obj.decode, MaxWidth, MaxHeight)
+			obj.decode = resizeGifFrames(obj.decode, MaxWidth, MaxHeight)
 			if c.Bool("autoplay") {
-				resized = compressGif(resized, MaxAutoplaySize)
+				obj.decode = compressGif(obj, MaxAutoplaySize)
 			} else {
-				resized = compressGif(resized, MaxImageSize)
+				obj.decode = compressGif(obj, MaxImageSize)
 			}
 			outPath := filepath.Join(
 				path.Dir(obj.file.Name()),
 				"WeChat_"+path.Base(obj.file.Name()),
 			)
 			out, err := os.Create(outPath)
-			err = stlgif.EncodeAll(out, resized)
+			err = stlgif.EncodeAll(out, obj.decode)
 			if err != nil {
 				fmt.Printf("❌ Failed saving '%s': %s\n", args[i], err.Error())
 				continue
@@ -238,42 +236,33 @@ palette color.Palette,
 	return paletted
 }
 
-func compressGif(gif *stlgif.GIF, maxSize int) (new *stlgif.GIF) {
+func compressGif(gif *gifImg, maxSize int) (new *stlgif.GIF) {
+	decode := gif.decode
 	// Stretching one edge of the gif by factor x will expand the size by roughly
 	// x^2 times. Note that it's the same when x < 1.0. So we can use the square
 	// root of the size ratio to scale the gif to estimate the ratio to resize
 	// one edge of the gif. Then we minus the ratio by 0.02 for safety in edge
 	// cases.
-	rate := math.Sqrt(float64(maxSize)/float64(getFileSize(gif))) - 0.02
+	rate := math.Sqrt(float64(maxSize)/float64(gif.size)) - 0.02
 	// Rate > 1.0 indicates that the gif is already smaller than the target size.
 	// So we return the original gif directly.
 	if rate > 1.0 {
-		return gif
+		return decode
 	}
 
 	new = &stlgif.GIF{
-		Image:           make([]*image.Paletted, len(gif.Image)),
-		Delay:           gif.Delay,
-		Disposal:        gif.Disposal,
-		BackgroundIndex: gif.BackgroundIndex,
-		Config:          gif.Config,
-		LoopCount:       gif.LoopCount,
+		Image:           make([]*image.Paletted, len(decode.Image)),
+		Delay:           decode.Delay,
+		Disposal:        decode.Disposal,
+		BackgroundIndex: decode.BackgroundIndex,
+		Config:          decode.Config,
+		LoopCount:       decode.LoopCount,
 	}
-	copy(new.Image, gif.Image)
+	copy(new.Image, decode.Image)
 
 	return resizeGifFrames(
 		new,
-		int(float64(gif.Config.Width)*rate),
-		gif.Config.Height,
+		int(float64(decode.Config.Width)*rate),
+		decode.Config.Height,
 	)
-}
-
-func getFileSize(gif *stlgif.GIF) (size int) {
-	buf := bytes.Buffer{}
-	bufWriter := io.Writer(&buf)
-	err := stlgif.EncodeAll(bufWriter, gif)
-	if err != nil {
-		fmt.Printf("❌ Failed encoding gif: %s\n", err.Error())
-	}
-	return buf.Len()
 }

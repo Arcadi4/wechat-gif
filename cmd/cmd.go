@@ -85,9 +85,9 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 				paths = append(paths, filepath.Join(arg, entry.Name()))
 			}
 		}
-		objs = readArgs(paths)
+		objs = readPaths(paths)
 	} else {
-		objs = readArgs(args)
+		objs = readPaths(args)
 	}
 
 	for _, obj := range objs {
@@ -136,7 +136,7 @@ type gifImg struct {
 	size   int
 }
 
-func readArgs(paths []string) []*gifImg {
+func readPaths(paths []string) []*gifImg {
 	var objs []*gifImg
 	for _, p := range paths {
 		file, err := os.OpenFile(p, os.O_RDONLY, 0644)
@@ -190,7 +190,6 @@ func isGoodGif(gif *stlgif.GIF, f *os.File) (good bool, err error) {
 	if stat.Size() >= MaxImageSize {
 		return false, nil
 	}
-
 	return true, nil
 }
 
@@ -226,24 +225,21 @@ func resizeGifFrames(gif *stlgif.GIF, x int, y int) (new *stlgif.GIF) {
 	}
 	wg.Wait()
 	updateGifConfig(new)
-
 	return new
 }
 
 func updateGifConfig(gif *stlgif.GIF) {
-	largestX := 0
-	largestY := 0
+	largestWidth, largestHeight := 0, 0
 	for _, frame := range gif.Image {
 		bound := frame.Bounds()
-		if bound.Dx() > largestX {
-			largestX = bound.Dx()
+		if bound.Dx() > largestWidth {
+			largestWidth = bound.Dx()
 		}
-		if bound.Dy() > largestY {
-			largestY = bound.Dy()
+		if bound.Dy() > largestHeight {
+			largestHeight = bound.Dy()
 		}
 	}
-	gif.Config.Width = largestX
-	gif.Config.Height = largestY
+	gif.Config.Width, gif.Config.Height = largestWidth, largestHeight
 }
 
 func convertNrgbaPaletted(

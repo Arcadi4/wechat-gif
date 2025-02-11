@@ -3,8 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/disintegration/imaging"
-	"github.com/urfave/cli/v3"
 	"image"
 	"image/color"
 	"image/draw"
@@ -14,12 +12,17 @@ import (
 	"path"
 	"path/filepath"
 	"sync"
+
+	"github.com/disintegration/imaging"
+	"github.com/urfave/cli/v3"
 )
 
-const MaxWidth = 1000
-const MaxHeight = 1000
-const MaxImageSize = 5242880
-const MaxAutoplaySize = 1048576
+const (
+	MaxWidth        = 1000
+	MaxHeight       = 1000
+	MaxImageSize    = 5242880
+	MaxAutoplaySize = 1048576
+)
 
 var defaultPalette = color.Palette{}
 
@@ -149,7 +152,7 @@ type gifImg struct {
 }
 
 func readPath(p string) *gifImg {
-	file, err := os.OpenFile(p, os.O_RDONLY, 0644)
+	file, err := os.OpenFile(p, os.O_RDONLY, 0o644)
 	info, _ := file.Stat()
 	if info.IsDir() {
 		fmt.Printf("❌ '%s' is a directory, use -d flag instead\n", p)
@@ -256,8 +259,8 @@ func updateGifConfig(gif *stlgif.GIF) {
 }
 
 func convertNrgbaPaletted(
-nrgba *image.NRGBA,
-palette color.Palette,
+	nrgba *image.NRGBA,
+	palette color.Palette,
 ) (paletted *image.Paletted) {
 	if palette == nil {
 		paletted = image.NewPaletted(nrgba.Rect, defaultPalette)

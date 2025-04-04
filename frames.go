@@ -1,20 +1,21 @@
 package main
 
 import (
-	"github.com/disintegration/imaging"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/gif"
 	"os"
 	"sync"
+
+	"github.com/disintegration/imaging"
 )
 
 const (
-	MaxWidth        = 1000
-	MaxHeight       = 1000
-	MaxImageSize    = 5242880
-	MaxAutoplaySize = 1048576
+	maxWidth        = 1000
+	maxHeight       = 1000
+	maxImageSize    = 5242880
+	maxAutoplaySize = 1048576
 )
 
 var rgb24Palette = color.Palette{}
@@ -36,7 +37,7 @@ func init() {
 func isGoodGif(gif *gif.GIF, f *os.File) (good bool, err error) {
 	for _, frame := range gif.Image {
 		bound := frame.Bounds()
-		if bound.Dx() > MaxWidth || bound.Dy() > MaxHeight {
+		if bound.Dx() > maxWidth || bound.Dy() > maxHeight {
 			return false, nil
 		}
 	}
@@ -45,7 +46,7 @@ func isGoodGif(gif *gif.GIF, f *os.File) (good bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if stat.Size() >= MaxImageSize {
+	if stat.Size() >= maxImageSize {
 		return false, nil
 	}
 	return true, nil
@@ -73,11 +74,11 @@ func resizeGifFrames(g *gif.GIF, x int, y int) (new *gif.GIF) {
 			bound := frame.Bounds()
 			if bound.Dx() > x {
 				resizedFrame := imaging.Resize(frame, x, 0, imaging.Lanczos)
-				new.Image[i] = convertNrgbaPaletted(resizedFrame, frame.Palette)
+				new.Image[i] = convertNrgbaToPaletted(resizedFrame, frame.Palette)
 			}
 			if bound.Dy() > y {
 				resizedFrame := imaging.Resize(frame, 0, y, imaging.Lanczos)
-				new.Image[i] = convertNrgbaPaletted(resizedFrame, frame.Palette)
+				new.Image[i] = convertNrgbaToPaletted(resizedFrame, frame.Palette)
 			}
 		}(i, frame)
 	}
@@ -101,9 +102,9 @@ func updateGifConfig(gif *gif.GIF) {
 	gif.Config.Width, gif.Config.Height = largestWidth, largestHeight
 }
 
-func convertNrgbaPaletted(
-nrgba *image.NRGBA,
-palette color.Palette,
+func convertNrgbaToPaletted(
+	nrgba *image.NRGBA,
+	palette color.Palette,
 ) (paletted *image.Paletted) {
 	if palette == nil {
 		paletted = image.NewPaletted(nrgba.Rect, rgb24Palette)

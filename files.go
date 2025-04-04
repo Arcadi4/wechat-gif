@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/urfave/cli/v3"
 	"image"
 	"image/gif"
 	"math"
@@ -10,6 +9,8 @@ import (
 	"path"
 	"path/filepath"
 	"sync"
+
+	"github.com/urfave/cli/v3"
 )
 
 func processDirectory(args []string) []*gifImg {
@@ -60,11 +61,11 @@ func processGifs(objs []*gifImg, c *cli.Command) {
 				return
 			}
 			if !good {
-				obj.decode = resizeGifFrames(obj.decode, MaxWidth, MaxHeight)
+				obj.decode = resizeGifFrames(obj.decode, maxWidth, maxHeight)
 				if c.Bool("autoplay") {
-					obj.decode = compressGif(obj, MaxAutoplaySize)
+					obj.decode = compressGif(obj, maxAutoplaySize)
 				} else {
-					obj.decode = compressGif(obj, MaxImageSize)
+					obj.decode = compressGif(obj, maxImageSize)
 				}
 				saveGif(obj)
 			} else {

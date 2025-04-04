@@ -24,8 +24,6 @@ var command = &cli.Command{
 }
 
 func action(ctx context.Context, c *cli.Command) (err error) {
-	initializePalette()
-
 	args := c.Args().Slice()
 	if len(args) == 0 {
 		cli.ShowAppHelpAndExit(c, 0)

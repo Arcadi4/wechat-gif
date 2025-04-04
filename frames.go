@@ -17,26 +17,15 @@ const (
 	MaxAutoplaySize = 1048576
 )
 
-var defaultPalette = color.Palette{}
+var rgb24Palette = color.Palette{}
 
-// Helper Functions
-func initializePalette() {
-	defaultPalette = color.Palette{
-		color.RGBA{A: 255},                         // Black
-		color.RGBA{R: 255, G: 255, B: 255, A: 255}, // White
-		color.RGBA{R: 255, A: 255},                 // Red
-		color.RGBA{G: 255, A: 255},                 // Green
-		color.RGBA{B: 255, A: 255},                 // Blue
-		color.RGBA{R: 255, G: 255, A: 255},         // Yellow
-		color.RGBA{G: 255, B: 255, A: 255},         // Cyan
-		color.RGBA{R: 255, B: 255, A: 255},         // Magenta
-	}
-
-	for i := len(defaultPalette); i < 256; i++ {
-		defaultPalette = append(
-			defaultPalette,
-			color.RGBA{R: uint8(i), G: uint8(i), B: uint8(i), A: 255},
-		)
+func init() {
+	for r := range 256 {
+		for g := range 256 {
+			for b := range 256 {
+				rgb24Palette = append(rgb24Palette, color.RGBA{uint8(r), uint8(g), uint8(b), 0})
+			}
+		}
 	}
 }
 
@@ -117,7 +106,7 @@ nrgba *image.NRGBA,
 palette color.Palette,
 ) (paletted *image.Paletted) {
 	if palette == nil {
-		paletted = image.NewPaletted(nrgba.Rect, defaultPalette)
+		paletted = image.NewPaletted(nrgba.Rect, rgb24Palette)
 	} else {
 		paletted = image.NewPaletted(nrgba.Rect, palette)
 	}

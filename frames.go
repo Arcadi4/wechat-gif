@@ -1,14 +1,12 @@
 package main
 
 import (
+	"github.com/disintegration/imaging"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/gif"
-	"os"
 	"sync"
-
-	"github.com/disintegration/imaging"
 )
 
 const (
@@ -18,44 +16,27 @@ const (
 	maxAutoplaySize = 1048576
 )
 
-var rgb24Palette = color.Palette{}
+var paletteRgbCompressed = color.Palette{}
 
 func init() {
-	for r := range 256 {
-		for g := range 256 {
-			for b := range 256 {
-				rgb24Palette = append(rgb24Palette, color.RGBA{uint8(r), uint8(g), uint8(b), 0})
+	for r := 0; r < 32; r++ {
+		for g := 0; g < 32; g++ {
+			for b := 0; b < 32; b++ {
+				paletteRgbCompressed = append(
+					paletteRgbCompressed,
+					color.RGBA{
+						R: uint8(r * 8), G: uint8(g * 8), B: uint8(b * 8),
+					},
+				)
 			}
 		}
 	}
 }
 
-// isGoodGif checks for the following conditions (AND):
-//  1. Height < 1000px
-//  3. Width < 1000px
-//  2. File Size < 1MB
-func isGoodGif(gif *gif.GIF, f *os.File) (good bool, err error) {
-	for _, frame := range gif.Image {
-		bound := frame.Bounds()
-		if bound.Dx() > maxWidth || bound.Dy() > maxHeight {
-			return false, nil
-		}
-	}
-
-	stat, err := f.Stat()
-	if err != nil {
-		return false, err
-	}
-	if stat.Size() >= maxImageSize {
-		return false, nil
-	}
-	return true, nil
-}
-
 // resizeGifFrames gives a gif with
 //   - Same ratio as the original gif
 //   - width < x AND height < y
-func resizeGifFrames(g *gif.GIF, x int, y int) (new *gif.GIF) {
+func resizeGifFrames(g *gif.GIF, maxX int, maxY int) (new *gif.GIF) {
 	new = &gif.GIF{
 		Image:           make([]*image.Paletted, len(g.Image)),
 		Delay:           g.Delay,
@@ -68,19 +49,31 @@ func resizeGifFrames(g *gif.GIF, x int, y int) (new *gif.GIF) {
 
 	var wg sync.WaitGroup
 	for i, frame := range g.Image {
-		wg.Add(1)
-		go func(i int, frame *image.Paletted) {
-			defer wg.Done()
-			bound := frame.Bounds()
-			if bound.Dx() > x {
-				resizedFrame := imaging.Resize(frame, x, 0, imaging.Lanczos)
-				new.Image[i] = convertNrgbaToPaletted(resizedFrame, frame.Palette)
-			}
-			if bound.Dy() > y {
-				resizedFrame := imaging.Resize(frame, 0, y, imaging.Lanczos)
-				new.Image[i] = convertNrgbaToPaletted(resizedFrame, frame.Palette)
-			}
-		}(i, frame)
+		x := frame.Stride
+		y := len(frame.Pix) / x
+		if y > maxY || x > maxX {
+			wg.Add(1)
+			go func(i int, frame *image.Paletted) {
+				defer wg.Done()
+				var resizedFrame *image.NRGBA
+				if x > y {
+					resizedFrame = imaging.Resize(
+						frame,
+						maxX,
+						0,
+						imaging.Lanczos,
+					)
+				} else {
+					resizedFrame = imaging.Resize(
+						frame,
+						0,
+						maxY,
+						imaging.Lanczos,
+					)
+				}
+				new.Image[i] = nrgbaToPaletted(resizedFrame, frame.Palette)
+			}(i, frame)
+		}
 	}
 	wg.Wait()
 	updateGifConfig(new)
@@ -102,15 +95,15 @@ func updateGifConfig(gif *gif.GIF) {
 	gif.Config.Width, gif.Config.Height = largestWidth, largestHeight
 }
 
-func convertNrgbaToPaletted(
+func nrgbaToPaletted(
 	nrgba *image.NRGBA,
 	palette color.Palette,
 ) (paletted *image.Paletted) {
 	if palette == nil {
-		paletted = image.NewPaletted(nrgba.Rect, rgb24Palette)
-	} else {
-		paletted = image.NewPaletted(nrgba.Rect, palette)
+		palette = paletteRgbCompressed
 	}
+	paletted = image.NewPaletted(nrgba.Rect, palette)
+
 	draw.FloydSteinberg.Draw(
 		paletted,
 		paletted.Rect,

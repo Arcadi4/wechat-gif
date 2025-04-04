@@ -14,11 +14,13 @@ var command = &cli.Command{
 			Name:    "dir",
 			Usage:   "Process all gif files in given directory",
 			Aliases: []string{"d"},
+			Value:   false,
 		},
 		&cli.BoolFlag{
 			Name:    "autoplay",
 			Usage:   "Compress further so it can autoplay (<1MiB)",
 			Aliases: []string{"a"},
+			Value:   false,
 		},
 	},
 	Action: action,
@@ -32,11 +34,11 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 
 	var objs []*gifImg
 	if c.Bool("dir") {
-		objs = processDirectory(args)
+		objs = flagDirectory(args)
 	} else {
-		objs = processFiles(args)
+		objs = flagFiles(args)
 	}
 
-	processGifs(objs, c)
+	processGifs(objs, c.Bool("autoplay"))
 	return nil
 }

@@ -45,6 +45,26 @@ var Cmd = &cli.Command{
 }
 
 func action(ctx context.Context, c *cli.Command) (err error) {
+	initializePalette()
+
+	args := c.Args().Slice()
+	if len(args) == 0 {
+		cli.ShowAppHelpAndExit(c, 0)
+	}
+
+	var objs []*gifImg
+	if c.Bool("dir") {
+		objs = processDirectory(args)
+	} else {
+		objs = processFiles(args)
+	}
+
+	processGifs(objs, c)
+	return nil
+}
+
+// Helper Functions
+func initializePalette() {
 	defaultPalette = color.Palette{
 		color.RGBA{A: 255},                         // Black
 		color.RGBA{R: 255, G: 255, B: 255, A: 255}, // White
@@ -62,43 +82,41 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 			color.RGBA{R: uint8(i), G: uint8(i), B: uint8(i), A: 255},
 		)
 	}
+}
 
-	args := c.Args().Slice()
-	if len(args) == 0 {
-		cli.ShowAppHelpAndExit(c, 0)
-	}
-
+func processDirectory(args []string) []*gifImg {
 	var objs []*gifImg
-	if c.Bool("dir") {
-		for _, arg := range args {
-			entries, err := os.ReadDir(arg)
-			if err != nil {
-				fmt.Printf(
-					"❌ Failed reading '%s': %s\n",
-					arg,
-					err.Error(),
-				)
+	for _, arg := range args {
+		entries, err := os.ReadDir(arg)
+		if err != nil {
+			fmt.Printf("❌ Failed reading '%s': %s\n", arg, err.Error())
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".gif" {
 				continue
 			}
-			for _, entry := range entries {
-				if entry.IsDir() || filepath.Ext(entry.Name()) != ".gif" {
-					continue
-				}
-				obj := readPath(filepath.Join(arg, entry.Name()))
-				if obj != nil {
-					objs = append(objs, obj)
-				}
-			}
-		}
-	} else {
-		for _, arg := range args {
-			obj := readPath(filepath.Join(arg))
+			obj := readPath(filepath.Join(arg, entry.Name()))
 			if obj != nil {
 				objs = append(objs, obj)
 			}
 		}
 	}
+	return objs
+}
 
+func processFiles(args []string) []*gifImg {
+	var objs []*gifImg
+	for _, arg := range args {
+		obj := readPath(filepath.Join(arg))
+		if obj != nil {
+			objs = append(objs, obj)
+		}
+	}
+	return objs
+}
+
+func processGifs(objs []*gifImg, c *cli.Command) {
 	wg := sync.WaitGroup{}
 	for _, obj := range objs {
 		wg.Add(1)
@@ -120,71 +138,33 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 				} else {
 					obj.decode = compressGif(obj, MaxImageSize)
 				}
-				outPath := filepath.Join(
-					path.Dir(obj.file.Name()),
-					"WeChat_"+path.Base(obj.file.Name()),
-				)
-				out, err := os.Create(outPath)
-				err = stlgif.EncodeAll(out, obj.decode)
-				if err != nil {
-					fmt.Printf(
-						"❌ Failed saving '%s': %s\n",
-						obj.file.Name(),
-						err.Error(),
-					)
-					return
-				}
-				fmt.Printf("🟢 Saved resized image '%s'\n", path.Base(outPath))
+				saveGif(obj)
 			} else {
 				fmt.Printf("🟢 '%s' is already good\n", obj.file.Name())
 			}
 		}(obj)
 	}
-
 	wg.Wait()
-	return nil
 }
 
-type gifImg struct {
-	decode *stlgif.GIF
-	file   *os.File
-	info   os.FileInfo
-}
+func saveGif(obj *gifImg) {
+	outPath := filepath.Join(
+		path.Dir(obj.file.Name()),
+		"WeChat_"+path.Base(obj.file.Name()),
+	)
+	out, err := os.Create(outPath)
+	if err != nil {
+		fmt.Printf("❌ Failed creating output file: %s\n", err.Error())
+		return
+	}
+	defer out.Close()
 
-func readPath(p string) *gifImg {
-	file, err := os.OpenFile(p, os.O_RDONLY, 0o644)
-	info, _ := file.Stat()
-	if info.IsDir() {
-		fmt.Printf("❌ '%s' is a directory, use -d flag instead\n", p)
-		return nil
-	}
+	err = stlgif.EncodeAll(out, obj.decode)
 	if err != nil {
-		fmt.Printf(
-			"❌ Failed opening '%s': %s\n",
-			p,
-			err.Error(),
-		)
-		return nil
+		fmt.Printf("❌ Failed saving '%s': %s\n", obj.file.Name(), err.Error())
+		return
 	}
-	fileInfo, err := file.Stat()
-	if err != nil {
-		fmt.Printf(
-			"❌ Failed opening '%s': %s\n",
-			p,
-			err.Error(),
-		)
-		return nil
-	}
-	var obj gifImg
-	obj.file = file
-	obj.info = fileInfo
-	decode, err := stlgif.DecodeAll(obj.file)
-	if err != nil {
-		fmt.Printf("❌ Faild decoding '%s': %s\n", p, err.Error())
-		return nil
-	}
-	obj.decode = decode
-	return &obj
+	fmt.Printf("🟢 Saved resized image '%s'\n", path.Base(outPath))
 }
 
 // isGoodGif checks for the following conditions (AND):
@@ -255,6 +235,7 @@ func updateGifConfig(gif *stlgif.GIF) {
 			largestHeight = bound.Dy()
 		}
 	}
+	// Dynamically adjust the canvas size to fit the largest frame
 	gif.Config.Width, gif.Config.Height = largestWidth, largestHeight
 }
 
@@ -305,4 +286,47 @@ func compressGif(gif *gifImg, maxSize int) (new *stlgif.GIF) {
 		int(float64(decode.Config.Width)*rate),
 		decode.Config.Height,
 	)
+}
+
+// File Handling
+type gifImg struct {
+	decode *stlgif.GIF
+	file   *os.File
+	info   os.FileInfo
+}
+
+func readPath(p string) *gifImg {
+	file, err := os.OpenFile(p, os.O_RDONLY, 0o644)
+	info, _ := file.Stat()
+	if info.IsDir() {
+		fmt.Printf("❌ '%s' is a directory, use -d flag instead\n", p)
+		return nil
+	}
+	if err != nil {
+		fmt.Printf(
+			"❌ Failed opening '%s': %s\n",
+			p,
+			err.Error(),
+		)
+		return nil
+	}
+	fileInfo, err := file.Stat()
+	if err != nil {
+		fmt.Printf(
+			"❌ Failed opening '%s': %s\n",
+			p,
+			err.Error(),
+		)
+		return nil
+	}
+	var obj gifImg
+	obj.file = file
+	obj.info = fileInfo
+	decode, err := stlgif.DecodeAll(obj.file)
+	if err != nil {
+		fmt.Printf("❌ Faild decoding '%s': %s\n", p, err.Error())
+		return nil
+	}
+	obj.decode = decode
+	return &obj
 }

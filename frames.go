@@ -6,7 +6,6 @@ import (
 	"image/color"
 	"image/draw"
 	"image/gif"
-	"sync"
 )
 
 const (
@@ -47,35 +46,31 @@ func resizeGifFrames(g *gif.GIF, maxX int, maxY int) (new *gif.GIF) {
 	}
 	copy(new.Image, g.Image)
 
-	var wg sync.WaitGroup
 	for i, frame := range g.Image {
 		x := frame.Stride
 		y := len(frame.Pix) / x
 		if y > maxY || x > maxX {
-			wg.Add(1)
-			go func(i int, frame *image.Paletted) {
-				defer wg.Done()
-				var resizedFrame *image.NRGBA
-				if x > y {
-					resizedFrame = imaging.Resize(
-						frame,
-						maxX,
-						0,
-						imaging.Lanczos,
-					)
-				} else {
-					resizedFrame = imaging.Resize(
-						frame,
-						0,
-						maxY,
-						imaging.Lanczos,
-					)
-				}
-				new.Image[i] = nrgbaToPaletted(resizedFrame, frame.Palette)
-			}(i, frame)
+			var resizedFrame *image.NRGBA
+			if x > y {
+				resizedFrame = imaging.Resize(
+					frame,
+					maxX,
+					0,
+					imaging.Lanczos,
+				)
+			} else {
+				resizedFrame = imaging.Resize(
+					frame,
+					0,
+					maxY,
+					imaging.Lanczos,
+				)
+			}
+			new.Image[i] = nrgbaToPaletted(resizedFrame, frame.Palette)
 		}
+
 	}
-	wg.Wait()
+
 	updateGifConfig(new)
 	return new
 }
@@ -96,8 +91,8 @@ func updateGifConfig(gif *gif.GIF) {
 }
 
 func nrgbaToPaletted(
-	nrgba *image.NRGBA,
-	palette color.Palette,
+nrgba *image.NRGBA,
+palette color.Palette,
 ) (paletted *image.Paletted) {
 	if palette == nil {
 		palette = paletteRgbCompressed

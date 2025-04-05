@@ -35,8 +35,8 @@ func init() {
 // resizeGifFrames gives a gif with
 //   - Same ratio as the original gif
 //   - width < x AND height < y
-func resizeGifFrames(g *gif.GIF, maxX int, maxY int) (new *gif.GIF) {
-	new = &gif.GIF{
+func resizeGifFrames(g *gif.GIF, targetX int, targetY int) (resized *gif.GIF) {
+	resized = &gif.GIF{
 		Image:           make([]*image.Paletted, len(g.Image)),
 		Delay:           g.Delay,
 		Disposal:        g.Disposal,
@@ -44,35 +44,53 @@ func resizeGifFrames(g *gif.GIF, maxX int, maxY int) (new *gif.GIF) {
 		Config:          g.Config,
 		LoopCount:       g.LoopCount,
 	}
-	copy(new.Image, g.Image)
+	copy(resized.Image, g.Image)
+	sizeX := resized.Config.Width
+	sizeY := resized.Config.Height
 
 	for i, frame := range g.Image {
-		x := frame.Stride
-		y := len(frame.Pix) / x
-		if y > maxY || x > maxX {
-			var resizedFrame *image.NRGBA
-			if x > y {
-				resizedFrame = imaging.Resize(
-					frame,
-					maxX,
-					0,
-					imaging.Lanczos,
-				)
-			} else {
-				resizedFrame = imaging.Resize(
-					frame,
-					0,
-					maxY,
-					imaging.Lanczos,
-				)
-			}
-			new.Image[i] = nrgbaToPaletted(resizedFrame, frame.Palette)
+		resampleFilter := imaging.Lanczos
+		bound := frame.Bounds()
+		if bound.Min.X != 0 || bound.Min.Y != 0 || bound.Max.X != sizeX || bound.Max.Y != sizeY {
+			// If the frame is not aligned to the gif canvas, we need to
+			// draw it on a new canvas before resizing. This might increase
+			// the file size, but it is necessary to ensure that the gif is
+			// correctly displayed after resizing.
+			backgroundBound := image.Rect(0, 0, sizeX, sizeY)
+			frame = addTransparentBackground(backgroundBound, frame)
+			// NearestNeighbor preserves harsh edges, this would prevent
+			// glitched frames (as a transparent background is added).
+			resampleFilter = imaging.NearestNeighbor
 		}
 
+		var resizedFrame *image.NRGBA
+		if sizeX > sizeY {
+			resizedFrame = imaging.Resize(frame, targetX, 0, resampleFilter)
+		} else {
+			resizedFrame = imaging.Resize(frame, 0, targetY, resampleFilter)
+		}
+
+		resized.Image[i] = nrgbaToPaletted(resizedFrame, frame.Palette)
 	}
 
-	updateGifConfig(new)
-	return new
+	updateGifConfig(resized)
+	return resized
+}
+
+func addTransparentBackground(
+rect image.Rectangle,
+paletted *image.Paletted,
+) *image.Paletted {
+	background := image.NewPaletted(rect, paletted.Palette)
+	draw.Draw(
+		background,
+		background.Bounds(),
+		image.Transparent,
+		image.Point{},
+		draw.Src,
+	)
+	draw.Draw(background, background.Rect, paletted, image.Point{}, draw.Over)
+	return background
 }
 
 func updateGifConfig(gif *gif.GIF) {

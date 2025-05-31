@@ -22,6 +22,12 @@ var command = &cli.Command{
 			Aliases: []string{"a"},
 			Value:   false,
 		},
+		&cli.IntFlag{
+			Name:    "workers",
+			Usage:   "Number of concurrent workers (default: 4)",
+			Aliases: []string{"w"},
+			Value:   4,
+		},
 	},
 	Action: action,
 }
@@ -39,6 +45,6 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 		objs = flagFiles(args)
 	}
 
-	processGifs(objs, c.Bool("autoplay"))
+	processGifs(objs, c.Bool("autoplay"), int(c.Int("workers")))
 	return nil
 }

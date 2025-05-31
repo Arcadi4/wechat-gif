@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"image"
 	"image/gif"
 	"math"
 	"os"
@@ -11,31 +11,51 @@ import (
 	"sync"
 )
 
-func processGifs(objs []*gifImg, autoplay bool) {
+func processGifs(objs []*gifImg, autoplay bool, maxWorkers int) {
+	// Limit concurrent processing to avoid overwhelming the system
+	if maxWorkers <= 0 {
+		maxWorkers = 4
+	}
+	if len(objs) < maxWorkers {
+		maxWorkers = len(objs)
+	}
+
+	semaphore := make(chan struct{}, maxWorkers)
 	wg := sync.WaitGroup{}
+
 	for _, obj := range objs {
 		wg.Add(1)
 		go func(obj *gifImg) {
 			defer wg.Done()
-			good, err := isGoodGif(obj.decode, obj.file)
+
+			// Acquire semaphore
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			good, err := isGoodGif(obj.decode, obj.info)
 			if err != nil {
 				fmt.Printf(
 					"❌ Failed checking '%s': %s\n",
-					obj.file.Name(),
+					obj.path,
 					err.Error(),
 				)
 				return
 			}
 			if !good {
-				obj.decode = resizeGifFrames(obj.decode, maxWidth, maxHeight)
 				if autoplay {
 					obj.decode = compressGif(obj, maxAutoplaySize)
 				} else {
 					obj.decode = compressGif(obj, maxImageSize)
 				}
+
+				obj.decode = resizeGifFramesUpTo(
+					obj.decode,
+					maxWidth,
+					maxHeight,
+				)
 				saveGif(obj)
 			} else {
-				fmt.Printf("🟢 '%s' is already good\n", obj.file.Name())
+				fmt.Printf("🟢 '%s' is already good\n", obj.path)
 			}
 		}(obj)
 	}
@@ -44,8 +64,8 @@ func processGifs(objs []*gifImg, autoplay bool) {
 
 func saveGif(obj *gifImg) {
 	outPath := filepath.Join(
-		path.Dir(obj.file.Name()),
-		"WeChat_"+path.Base(obj.file.Name()),
+		path.Dir(obj.path),
+		"WeChat_"+path.Base(obj.path),
 	)
 	out, err := os.Create(outPath)
 	if err != nil {
@@ -54,50 +74,56 @@ func saveGif(obj *gifImg) {
 	}
 	defer out.Close()
 
-	err = gif.EncodeAll(out, obj.decode)
+	// Use buffered writer for better I/O performance
+	writer := bufio.NewWriter(out)
+	defer writer.Flush()
+
+	err = gif.EncodeAll(writer, obj.decode)
 	if err != nil {
-		fmt.Printf("❌ Failed saving '%s': %s\n", obj.file.Name(), err.Error())
+		fmt.Printf("❌ Failed saving '%s': %s\n", obj.path, err.Error())
 		return
 	}
 	fmt.Printf("🟢 Saved resized image '%s'\n", path.Base(outPath))
 }
 
-func compressGif(gifImg *gifImg, maxSize int) (new *gif.GIF) {
-	decode := gifImg.decode
-	// Stretching one edge of the gif by factor x will expand the size by roughly
-	// x^2 times. Note that it's the same when x < 1.0. So we can use the square
-	// root of the size ratio to scale the gif to estimate the ratio to resize
-	// one edge of the gif. Then we minus the ratio by 0.02 for safety in edge
-	// cases.
-	rate := math.Sqrt(float64(maxSize)/float64(gifImg.info.Size())) - 0.02
-	// Rate > 1.0 indicates that the gif is already smaller than the target size.
-	// So we return the original gif directly.
-	if rate > 1.0 {
+func compressGif(img *gifImg, maxSize int) (new *gif.GIF) {
+	decode := img.decode
+
+	// Early return if already small enough
+	size := img.info.Size()
+	if size <= int64(maxSize) {
 		return decode
 	}
 
-	new = &gif.GIF{
-		Image:           make([]*image.Paletted, len(decode.Image)),
-		Delay:           decode.Delay,
-		Disposal:        decode.Disposal,
-		BackgroundIndex: decode.BackgroundIndex,
-		Config:          decode.Config,
-		LoopCount:       decode.LoopCount,
-	}
-	copy(new.Image, decode.Image)
+	// Improved compression ratio calculation
+	// Using a more conservative approach to ensure we don't over-compress
+	sizeRatio := float64(maxSize) / float64(size)
+	areaRatio := math.Sqrt(sizeRatio) * 0.8
 
-	return resizeGifFrames(
-		new,
-		int(float64(decode.Config.Width)*rate),
-		decode.Config.Height,
-	)
+	// Ensure minimum quality threshold
+	if areaRatio < 0.3 {
+		areaRatio = 0.3
+	}
+
+	targetX := int(float64(decode.Config.Width) * areaRatio)
+	targetY := int(float64(decode.Config.Height) * areaRatio)
+
+	// Ensure minimum dimensions
+	if targetX < 64 {
+		targetX = 64
+	}
+	if targetY < 64 {
+		targetY = 64
+	}
+
+	return resizeGifFramesUpTo(decode, targetX, targetY)
 }
 
 // isGoodGif checks for the following conditions (AND):
 //  1. Height < 1000px
 //  3. Width < 1000px
-//  2. File Size < 1MB
-func isGoodGif(gif *gif.GIF, f *os.File) (good bool, err error) {
+//  2. File Size < maxImageSize
+func isGoodGif(gif *gif.GIF, fileInfo os.FileInfo) (good bool, err error) {
 	for _, frame := range gif.Image {
 		bound := frame.Bounds()
 		if bound.Dx() > maxWidth || bound.Dy() > maxHeight {
@@ -105,11 +131,7 @@ func isGoodGif(gif *gif.GIF, f *os.File) (good bool, err error) {
 		}
 	}
 
-	stat, err := f.Stat()
-	if err != nil {
-		return false, err
-	}
-	if stat.Size() >= maxImageSize {
+	if fileInfo.Size() >= maxImageSize {
 		return false, nil
 	}
 	return true, nil

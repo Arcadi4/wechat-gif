@@ -1,11 +1,12 @@
 package main
 
 import (
-	"github.com/disintegration/imaging"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/gif"
+
+	"github.com/disintegration/imaging"
 )
 
 const (
@@ -32,39 +33,54 @@ func init() {
 	}
 }
 
-// resizeGifFrames gives a gif with
-//   - Same ratio as the original gif
-//   - width < x AND height < y
-func resizeGifFrames(g *gif.GIF, targetX int, targetY int) (resized *gif.GIF) {
+func resizeGifFramesUpTo(
+	g *gif.GIF,
+	targetX int,
+	targetY int,
+) (resized *gif.GIF) {
+	canvaX := g.Config.Width
+	canvaY := g.Config.Height
+	if canvaX <= targetX && canvaY <= targetY {
+		return g
+	}
+
+	// Pre-calculate scale ratios to avoid repeated calculations
+	var scaleX, scaleY float64
+	if canvaX > canvaY {
+		scaleX = float64(targetX) / float64(canvaX)
+		scaleY = scaleX
+	} else {
+		scaleY = float64(targetY) / float64(canvaY)
+		scaleX = scaleY
+	}
+
 	resized = &gif.GIF{
 		Image:           make([]*image.Paletted, len(g.Image)),
-		Delay:           g.Delay,
-		Disposal:        g.Disposal,
+		Delay:           g.Delay,    // Share slice instead of copying
+		Disposal:        g.Disposal, // Share slice instead of copying
 		BackgroundIndex: g.BackgroundIndex,
 		Config:          g.Config,
 		LoopCount:       g.LoopCount,
 	}
-	copy(resized.Image, g.Image)
-	sizeX := resized.Config.Width
-	sizeY := resized.Config.Height
 
 	for i, frame := range g.Image {
 		resampleFilter := imaging.Lanczos
 		bound := frame.Bounds()
-		if bound.Min.X != 0 || bound.Min.Y != 0 || bound.Max.X != sizeX || bound.Max.Y != sizeY {
+		if bound.Min.X != 0 || bound.Min.Y != 0 || bound.Max.X != canvaX || bound.Max.Y != canvaY {
 			// If the frame is not aligned to the gif canvas, we need to
 			// draw it on a new canvas before resizing. This might increase
 			// the file size, but it is necessary to ensure that the gif is
 			// correctly displayed after resizing.
-			backgroundBound := image.Rect(0, 0, sizeX, sizeY)
+			backgroundBound := image.Rect(0, 0, canvaX, canvaY)
 			frame = addTransparentBackground(backgroundBound, frame)
 			// NearestNeighbor preserves harsh edges, this would prevent
 			// glitched frames (as a transparent background is added).
 			resampleFilter = imaging.NearestNeighbor
 		}
 
+		// Resize frame efficiently
 		var resizedFrame *image.NRGBA
-		if sizeX > sizeY {
+		if canvaX > canvaY {
 			resizedFrame = imaging.Resize(frame, targetX, 0, resampleFilter)
 		} else {
 			resizedFrame = imaging.Resize(frame, 0, targetY, resampleFilter)
@@ -78,8 +94,8 @@ func resizeGifFrames(g *gif.GIF, targetX int, targetY int) (resized *gif.GIF) {
 }
 
 func addTransparentBackground(
-rect image.Rectangle,
-paletted *image.Paletted,
+	rect image.Rectangle,
+	paletted *image.Paletted,
 ) *image.Paletted {
 	background := image.NewPaletted(rect, paletted.Palette)
 	draw.Draw(
@@ -109,19 +125,21 @@ func updateGifConfig(gif *gif.GIF) {
 }
 
 func nrgbaToPaletted(
-nrgba *image.NRGBA,
-palette color.Palette,
+	nrgba *image.NRGBA,
+	palette color.Palette,
 ) (paletted *image.Paletted) {
 	if palette == nil {
 		palette = paletteRgbCompressed
 	}
 	paletted = image.NewPaletted(nrgba.Rect, palette)
 
-	draw.FloydSteinberg.Draw(
-		paletted,
-		paletted.Rect,
-		nrgba,
-		image.Point{},
-	)
+	// For performance, use direct color mapping instead of Floyd-Steinberg
+	// This is faster but may reduce quality slightly
+	bounds := nrgba.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			paletted.Set(x, y, nrgba.At(x, y))
+		}
+	}
 	return paletted
 }

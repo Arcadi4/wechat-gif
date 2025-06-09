@@ -7,14 +7,15 @@ import (
 	"path/filepath"
 )
 
+// gifImg represents a GIF image with its metadata
 type gifImg struct {
 	decode *gif.GIF
-	file   *os.File
 	info   os.FileInfo
 	path   string
 }
 
-func flagDirectory(args []string) []*gifImg {
+// loadGifsFromDirectory loads all GIF files from specified directories
+func loadGifsFromDirectory(args []string) []*gifImg {
 	var objs []*gifImg
 	for _, arg := range args {
 		entries, err := os.ReadDir(arg)
@@ -26,7 +27,7 @@ func flagDirectory(args []string) []*gifImg {
 			if entry.IsDir() || filepath.Ext(entry.Name()) != ".gif" {
 				continue
 			}
-			obj := readPath(filepath.Join(arg, entry.Name()))
+			obj := loadGifFromPath(filepath.Join(arg, entry.Name()))
 			if obj != nil {
 				objs = append(objs, obj)
 			}
@@ -35,10 +36,11 @@ func flagDirectory(args []string) []*gifImg {
 	return objs
 }
 
-func flagFiles(args []string) []*gifImg {
+// loadGifsFromPaths loads GIF files from specified file paths
+func loadGifsFromPaths(args []string) []*gifImg {
 	var objs []*gifImg
 	for _, arg := range args {
-		obj := readPath(filepath.Join(arg))
+		obj := loadGifFromPath(arg)
 		if obj != nil {
 			objs = append(objs, obj)
 		}
@@ -46,48 +48,35 @@ func flagFiles(args []string) []*gifImg {
 	return objs
 }
 
-func readPath(p string) *gifImg {
-	file, err := os.OpenFile(p, os.O_RDONLY, 0o644)
+// loadGifFromPath loads a single GIF file from the given path
+func loadGifFromPath(path string) *gifImg {
+	file, err := os.OpenFile(path, os.O_RDONLY, 0o644)
 	if err != nil {
-		fmt.Printf(
-			"❌ Failed opening '%s': %s\n",
-			p,
-			err.Error(),
-		)
+		fmt.Printf("❌ Failed opening '%s': %s\n", path, err.Error())
 		return nil
 	}
+	defer file.Close()
 
 	info, err := file.Stat()
 	if err != nil {
-		file.Close()
-		fmt.Printf(
-			"❌ Failed getting file info '%s': %s\n",
-			p,
-			err.Error(),
-		)
+		fmt.Printf("❌ Failed getting file info '%s': %s\n", path, err.Error())
 		return nil
 	}
 
 	if info.IsDir() {
-		file.Close()
-		fmt.Printf("❌ '%s' is a directory, use -d flag instead\n", p)
+		fmt.Printf("❌ '%s' is a directory, use -d flag instead\n", path)
 		return nil
 	}
 
 	decode, err := gif.DecodeAll(file)
 	if err != nil {
-		file.Close()
-		fmt.Printf("❌ Failed decoding '%s': %s\n", p, err.Error())
+		fmt.Printf("❌ Failed decoding '%s': %s\n", path, err.Error())
 		return nil
 	}
 
-	// Close file immediately after decoding since we have all data in memory
-	file.Close()
-
 	return &gifImg{
 		decode: decode,
-		file:   nil, // We no longer need the file handle
 		info:   info,
-		path:   p, // Store path for later use
+		path:   path,
 	}
 }

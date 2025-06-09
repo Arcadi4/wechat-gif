@@ -38,13 +38,13 @@ func action(ctx context.Context, c *cli.Command) (err error) {
 		cli.ShowAppHelpAndExit(c, 0)
 	}
 
-	var objs []*gifImg
+	var gifs []*gifImg
 	if c.Bool("dir") {
-		objs = flagDirectory(args)
+		gifs = loadGifsFromDirectory(args)
 	} else {
-		objs = flagFiles(args)
+		gifs = loadGifsFromPaths(args)
 	}
 
-	processGifs(objs, c.Bool("autoplay"), int(c.Int("workers")))
+	processGifs(gifs, c.Bool("autoplay"), int(c.Int("workers")))
 	return nil
 }
